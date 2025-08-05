@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Animated Vue.js Crypto Tracker</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Vue.js for reactivity -->
+    <script src="https://unpkg.com/vue@3.2.36/dist/vue.global.js"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Feather Icons for up/down arrows -->
+    <script src="https://unpkg.com/feather-icons"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117; /* GitHub dark background */
+        }
+        .table-row-hover:hover {
+            background-color: #161b22; /* Slightly lighter than body bg */
+        }
+
+        /* --- Animation Keyframes --- */
+
+        /* Staggered row entry animation */
+        @keyframes row-in {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        /* Price flash animations */
+        @keyframes price-flash-up {
+            0%, 100% { background-color: transparent; }
+            50% { background-color: rgba(34, 197, 94, 0.2); } /* green-500 with 20% opacity */
+        }
+
+        @keyframes price-flash-down {
+            0%, 100% { background-color: transparent; }
+            50% { background-color: rgba(239, 68, 68, 0.2); } /* red-500 with 20% opacity */
+        }
+
+        /* Sparkline drawing animation */
+        @keyframes sparkline-draw {
+            from {
+                stroke-dashoffset: 1000;
+            }
+            to {
+                stroke-dashoffset: 0;
+            }
+        }
+
+        /* --- Animation Classes --- */
+
+        .table-row-animated {
+            animation: row-in 0.5s ease-out forwards;
+            opacity: 0; /* Start hidden */
+        }
+
+        .price-cell-animated.text-green-400 {
+            animation: price-flash-up 1s ease-out;
+        }
+
+        .price-cell-animated.text-red-400 {
+            animation: price-flash-down 1s ease-out;
+        }
+
+        .sparkline-animated {
+            stroke-dasharray: 1000;
+            stroke-dashoffset: 1000;
+            animation: sparkline-draw 1.5s ease-out forwards;
+        }
+
+        .sparkline-positive {
+            stroke: #22c55e; /* green-500 */
+        }
+        .sparkline-negative {
+            stroke: #ef4444; /* red-500 */
+        }
+    </style>
+</head>
+<body class="text-gray-300 antialiased">
+
+    <div id="app" class="container mx-auto px-4 py-8 md:py-12">
+
+        <header class="flex flex-col sm:flex-row justify-between items-center mb-8 md:mb-12">
+            <div>
+                <h1 class="text-4xl md:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 mb-2">Crypto Pulse</h1>
+                <p class="text-lg text-gray-400">Real-time market overview of top cryptocurrencies.</p>
+            </div>
+            <div v-if="lastUpdated" class="text-right text-sm text-gray-500 mt-4 sm:mt-0">
+                <p>Last Updated</p>
+                <p class="font-semibold text-gray-400">{{ new Date(lastUpdated).toLocaleString() }}</p>
+            </div>
+        </header>
+
+        <!-- Loading Spinner -->
+        <div v-if="loading" class="flex justify-center items-center h-96">
+            <div class="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-cyan-500"></div>
+        </div>
+
+        <!-- Error Message -->
+        <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg text-center">
+            <p class="font-bold">An Error Occurred</p>
+            <p>We couldn't fetch the latest cryptocurrency data. Please check back later.</p>
+        </div>
+
+        <!-- Crypto Table -->
+        <div v-if="!loading && !error" class="overflow-x-auto bg-[#161b22] rounded-lg border border-gray-800 shadow-2xl shadow-black/20">
+            <table class="min-w-full text-sm text-left">
+                <thead class="bg-gray-900/70 text-xs text-gray-400 uppercase tracking-wider">
+                    <tr>
+                        <th scope="col" class="px-6 py-3 text-center">#</th>
+                        <th scope="col" class="px-6 py-3">Coin</th>
+                        <th scope="col" class="px-6 py-3 text-right">Price</th>
+                        <th scope="col" class="px-6 py-3 text-right">24h %</th>
+                        <th scope="col" class="px-6 py-3 text-right">Market Cap</th>
+                        <th scope="col" class="px-6 py-3 text-center">Last 7 Days</th>
+                    </tr>
+                </thead>
+                <!-- By changing the key, we tell Vue to re-render the whole tbody, which re-triggers the animations -->
+                <tbody :key="updateKey">
+                    <tr v-for="(coin, index) in coins" :key="coin.id" class="border-b border-gray-800 table-row-hover transition-colors duration-200 table-row-animated" :style="{ animationDelay: index * 80 + 'ms' }">
+                        <td class="px-6 py-4 text-center text-gray-500 font-medium">{{ coin.market_cap_rank }}</td>
+                        <th scope="row" class="px-6 py-4 font-medium text-white whitespace-nowrap">
+                            <div class="flex items-center">
+                                <img :src="coin.image" :alt="coin.name + ' logo'" class="h-6 w-6 mr-3 rounded-full" onerror="this.onerror=null;this.src='https://placehold.co/24x24/1f2937/ffffff?text=X';">
+                                <div>
+                                    <span>{{ coin.name }}</span>
+                                    <span class="ml-2 text-gray-500 uppercase">{{ coin.symbol }}</span>
+                                </div>
+                            </div>
+                        </th>
+                        <td class="px-6 py-4 text-right font-semibold price-cell-animated" :class="getPriceChangeClass(coin.price_change_percentage_24h)">{{ formatPrice(coin.current_price) }}</td>
+                        <td class="px-6 py-4 text-right">
+                            <span :class="getPriceChangeClass(coin.price_change_percentage_24h)" class="flex items-center justify-end">
+                                <i :data-feather="coin.price_change_percentage_24h >= 0 ? 'trending-up' : 'trending-down'" class="w-4 h-4 mr-1"></i>
+                                {{ formatPercentage(coin.price_change_percentage_24h) }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 text-right text-gray-400">{{ formatMarketCap(coin.market_cap) }}</td>
+                        <td class="px-6 py-4">
+                            <svg :viewBox="`0 0 100 30`" class="w-full h-8" preserveAspectRatio="none">
+                                <path :d="generateSparkline(coin.sparkline_in_7d.price)" :class="getSparklineClass(coin.price_change_percentage_24h)" class="sparkline-animated" stroke-width="2" fill="none" />
+                            </svg>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <footer class="text-center mt-12 text-gray-600 text-sm">
+            <p>Data provided by <a href="https://www.coingecko.com/en/api" target="_blank" class="font-semibold text-cyan-600 hover:text-cyan-400">CoinGecko</a></p>
+        </footer>
+
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    coins: [],
+                    loading: true,
+                    error: false,
+                    lastUpdated: null,
+                    updateKey: 0, // Key to force re-render and re-trigger animations
+                    api_url: 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1&sparkline=true'
+                };
+            },
+            methods: {
+                /**
+                 * Fetches cryptocurrency data from the CoinGecko API.
+                 */
+                async fetchData() {
+                    try {
+                        const response = await fetch(this.api_url);
+                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        const data = await response.json();
+                        this.coins = data;
+                        this.lastUpdated = new Date();
+                        this.error = false;
+                        this.updateKey++; // Increment key to force re-render
+                    } catch (e) {
+                        console.error("Error fetching data: ", e);
+                        this.error = true;
+                    } finally {
+                        this.loading = false;
+                        // After data is loaded, render icons
+                        this.$nextTick(() => {
+                            feather.replace();
+                        });
+                    }
+                },
+                /**
+                 * Formats a number into a USD currency string.
+                 * @param {number} value - The number to format.
+                 * @returns {string} - The formatted price string.
+                 */
+                formatPrice(value) {
+                    if (typeof value !== 'number') return 'N/A';
+                    return value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: value > 1 ? 2 : 6 });
+                },
+                /**
+                 * Formats large numbers (market cap) into a shorter string (e.g., $1.2T, $350.5B).
+                 * @param {number} num - The number to format.
+                 * @returns {string} - The formatted market cap string.
+                 */
+                formatMarketCap(num) {
+                    if (typeof num !== 'number') return 'N/A';
+                    if (num > 1e12) return `$${(num / 1e12).toFixed(2)}T`;
+                    if (num > 1e9) return `$${(num / 1e9).toFixed(2)}B`;
+                    if (num > 1e6) return `$${(num / 1e6).toFixed(2)}M`;
+                    return `$${num.toLocaleString()}`;
+                },
+                /**
+                 * Formats a number into a percentage string.
+                 * @param {number} value - The percentage to format.
+                 * @returns {string} - The formatted percentage string.
+                 */
+                formatPercentage(value) {
+                    if (typeof value !== 'number') return 'N/A';
+                    return value.toFixed(2) + '%';
+                },
+                /**
+                 * Returns a Tailwind CSS class for text color based on price change.
+                 * @param {number} value - The price change percentage.
+                 * @returns {string} - The corresponding CSS class.
+                 */
+                getPriceChangeClass(value) {
+                    if (typeof value !== 'number') return 'text-gray-400';
+                    return value >= 0 ? 'text-green-400' : 'text-red-400';
+                },
+                 /**
+                 * Returns a CSS class for the sparkline color.
+                 * @param {number} value - The price change percentage.
+                 * @returns {string} - The corresponding CSS class for the sparkline.
+                 */
+                getSparklineClass(value) {
+                    if (typeof value !== 'number') return 'sparkline-negative';
+                    return value >= 0 ? 'sparkline-positive' : 'sparkline-negative';
+                },
+                /**
+                 * Generates an SVG path string for a sparkline chart.
+                 * @param {number[]} data - An array of price points.
+                 * @returns {string} - The SVG path data.
+                 */
+                generateSparkline(data) {
+                    if (!data || data.length < 2) return '';
+                    const width = 100;
+                    const height = 30;
+                    const min = Math.min(...data);
+                    const max = Math.max(...data);
+                    const range = max - min;
+                    
+                    const points = data.map((d, i) => {
+                        const x = (i / (data.length - 1)) * width;
+                        const y = height - ((d - min) / (range || 1)) * (height - 2) + 1; // Prevent flat lines from touching edge
+                        return `${x.toFixed(2)},${y.toFixed(2)}`;
+                    });
+
+                    return `M ${points.join(' L ')}`;
+                }
+            },
+            /**
+             * This function is called when the Vue app is first created.
+             * It fetches the initial data and sets up an interval to refresh the data every minute.
+             */
+            mounted() {
+                this.fetchData(); // Fetch initial data
+                setInterval(this.fetchData, 60000); // Refresh data every 60 seconds
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
